@@ -1,4 +1,10 @@
-use strict; use warnings; use Test::More;
+use strict;
+use warnings;
+use Test::More;
 require './this-could-have-been-a-regex.pl';
-my $r=main::summarize("Ada: hello\nBob: café\n");
-is $r->{lines},2,'physical lines'; is $r->{words},4,'words'; is_deeply $r->{speakers},{Ada=>1,Bob=>1},'speakers'; is main::summarize('',0)->{lines},0,'empty'; done_testing;
+my $r = main::summarize("Ada: TODO send notes\nBob: sounds good\nACTION: book room\n", 0);
+is $r->{lines}, 3, 'line count'; is $r->{words}, 10, 'word count'; is_deeply $r->{speakers}, { Ada => 1, Bob => 1 }, 'speaker lines'; is_deeply $r->{actions}, ['send notes', 'book room'], 'actions';
+is main::summarize('', 0)->{words}, 0, 'empty input';
+ok main::summarize("Zoë: café\n", 0)->{words} == 2, 'unicode words';
+my $p = main::summarize('Mail me a@b.example or call 555-123-4567', 0); ok defined($p), 'no crash';
+done_testing;

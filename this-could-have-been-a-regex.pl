@@ -1,50 +1,60 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use Getopt::Long qw(GetOptions);
 use Encode qw(decode FB_CROAK);
+use JSON::PP;
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
-sub usage {
-    print "usage: this-could-have-been-a-regex.pl [FILE|-]\n";
-    exit $_[0];
+
+sub run_cli {
+    my ($json, $help);
+    GetOptions('json' => \$json, 'help' => \$help) or usage(2);
+    usage(0) if $help; usage(2) if @ARGV > 1;
+    my $text = ''; my $raw = '';
+    if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); local $/; $raw = <$fh> // ''; close $fh; }
+    else { binmode STDIN, ':raw'; local $/; $raw = <STDIN> // ''; }
+    eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
+    my $report = summarize($text, 0);
+    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : print_report($report);
 }
+run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
+
+sub usage {
+    my ($code) = @_;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [FILE|-]\n" unless $code;
+    exit $code;
+}
+
 sub summarize {
-    my ($input) = @_;
+    my ($input, $do_redact) = @_;
     my @lines = length($input) ? split(/\n/, $input, -1) : ();
     pop @lines if @lines && $input =~ /\n\z/;
-    my (%speakers, $words);
-    $words = 0;
+    my (%speakers, @actions); my $words = 0;
     for my $line (@lines) {
-        $words += () = ($line =~ /\S+/g);
-        if ($line =~ /^\s*([^:]{1,40}):/) {
-            my $speaker = $1;
-            $speaker =~ s/^\s+|\s+$//g;
-            $speakers{$speaker}++;
+        my $shown = $line;
+        $words += () = ($shown =~ /\S+/g);
+        if ($shown =~ /^\s*([^:]{1,40}):\s*(.*)$/) {
+            my ($speaker, $utterance) = ($1, $2); $speaker =~ s/^\s+|\s+$//g;
+            if ($speaker =~ /^(?:TODO|ACTION|FOLLOW[- ]?UP)$/i) { push @actions, $utterance; }
+            else { $speakers{$speaker}++; push @actions, $1 if $utterance =~ /^\s*(?:TODO|ACTION|FOLLOW[- ]?UP)\b\s*:?[ \t]*(.*)$/i; }
+        } elsif ($shown =~ /^\s*(?:[-*]\s*)?\b(?:TODO|ACTION|FOLLOW[- ]?UP)\b\s*:?(.*)$/i) {
+            push @actions, $1 =~ s/^\s+//r;
         }
     }
-    return {lines => scalar(@lines), words => $words, speakers => \%speakers};
+    return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions };
 }
-sub run {
-    usage(0) if @ARGV && $ARGV[0] eq '--help';
-    usage(2) if @ARGV > 1 || (@ARGV && $ARGV[0] =~ /^-/ && $ARGV[0] ne '-');
-    my $raw = '';
-    if (@ARGV && $ARGV[0] ne '-') {
-        open my $file, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!");
-        local $/;
-        $raw = <$file> // '';
-        close $file;
-    } else {
-        binmode STDIN, ':raw';
-        local $/;
-        $raw = <STDIN> // '';
-    }
-    my $text;
-    eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
-    my $report = summarize($text);
-    print "This Could Have Been a Regex\nlines: $report->{lines}\nwords: $report->{words}\nspeaker airtime approximation (lines):\n";
-    print "  $_: $report->{speakers}{$_}\n" for sort keys %{$report->{speakers}};
-    print "Counts are literal; labelled lines are not elapsed speaking time.\n";
+
+sub print_report {
+    my ($r) = @_;
+    print "This Could Have Been a Regex\nlines: $r->{lines}\nwords: $r->{words}\n";
+    print "speaker airtime approximation (lines):\n";
+    print "  $_: $r->{speakers}{$_}\n" for sort keys %{$r->{speakers}};
+    print "actions / TODOs:\n";
+    print "  - $_\n" for @{$r->{actions}};
+    print "(No compiler, sentiment model, or privacy guarantee involved.)\n";
 }
-run() unless caller;
+
 1;
