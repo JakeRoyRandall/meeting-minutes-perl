@@ -8,14 +8,14 @@ binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
 sub run_cli {
-    my ($json, $help);
-    GetOptions('json' => \$json, 'help' => \$help) or usage(2);
+    my ($json, $redact, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'help' => \$help) or usage(2);
     usage(0) if $help; usage(2) if @ARGV > 1;
     my $text = ''; my $raw = '';
     if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); local $/; $raw = <$fh> // ''; close $fh; }
     else { binmode STDIN, ':raw'; local $/; $raw = <STDIN> // ''; }
     eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
-    my $report = summarize($text, 0);
+    my $report = summarize($text, $redact);
     $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : print_report($report);
 }
 run_cli() unless caller;
@@ -35,6 +35,8 @@ sub summarize {
     my (%speakers, @actions); my $words = 0;
     for my $line (@lines) {
         my $shown = $line;
+        $shown =~ s/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/[email redacted]/g if $do_redact;
+        $shown =~ s/\b(?:\+?\d[\d .()-]{7,}\d)\b/[phone redacted]/g if $do_redact;
         $words += () = ($shown =~ /\S+/g);
         if ($shown =~ /^\s*([^:]{1,40}):\s*(.*)$/) {
             my ($speaker, $utterance) = ($1, $2); $speaker =~ s/^\s+|\s+$//g;
@@ -44,7 +46,7 @@ sub summarize {
             push @actions, $1 =~ s/^\s+//r;
         }
     }
-    return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions };
+    return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions, redacted => $do_redact ? JSON::PP::true : JSON::PP::false };
 }
 
 sub print_report {

@@ -6,5 +6,5 @@ my $r = main::summarize("Ada: TODO send notes\nBob: sounds good\nACTION: book ro
 is $r->{lines}, 3, 'line count'; is $r->{words}, 10, 'word count'; is_deeply $r->{speakers}, { Ada => 1, Bob => 1 }, 'speaker lines'; is_deeply $r->{actions}, ['send notes', 'book room'], 'actions';
 is main::summarize('', 0)->{words}, 0, 'empty input';
 ok main::summarize("Zoë: café\n", 0)->{words} == 2, 'unicode words';
-my $p = main::summarize('Mail me a@b.example or call 555-123-4567', 0); ok defined($p), 'no crash';
+my $p = main::summarize('Mail me a@b.example or call 555-123-4567', 1); like $p->{actions}[0] // '', qr/^/, 'no crash'; ok $p->{redacted}, 'redaction marker';
 done_testing;
