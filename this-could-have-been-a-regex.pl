@@ -10,8 +10,9 @@ binmode STDERR, ':encoding(UTF-8)';
 our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
-    my ($json, $redact, $actions_only, $speaker_filter, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
+    my ($json, $redact, $actions_only, $markdown, $speaker_filter, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
+    cli_fail('--json and --markdown cannot be combined') if $json && $markdown;
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     usage(0) if $help; usage(2) if @ARGV > 1;
     my $text = ''; my $raw = '';
@@ -21,7 +22,7 @@ sub run_cli {
     my $report = summarize($text, $redact, $speaker_filter);
     $report->{actions_only} = $actions_only ? JSON::PP::true : JSON::PP::false;
     $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
-    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($actions_only ? print_actions_only($report) : print_report($report));
+    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report)));
 }
 run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
@@ -42,8 +43,8 @@ sub read_bounded {
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--speaker NAME] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--speaker NAME] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--speaker NAME] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--speaker NAME] [FILE|-]\n" unless $code;
     exit $code;
 }
 
@@ -84,6 +85,29 @@ sub print_actions_only {
     my ($r) = @_;
     print "This Could Have Been a Regex · actions only\n";
     print "line $_->{line}: - $_->{text}\n" for @{$r->{action_lines}};
+}
+
+sub markdown_escape {
+    my ($value) = @_;
+    $value =~ s/([\\`|*_{}\[\]()#+.!<>~&-])/\\$1/g;
+    $value =~ s/[\r\n]+/ /g;
+    return $value;
+}
+
+sub print_markdown {
+    my ($r) = @_;
+    print "# Meeting handoff\n\n";
+    if (!$r->{actions_only}) {
+        print "- **Lines:** $r->{lines}\n- **Words:** $r->{words}\n\n";
+    }
+    if (!$r->{actions_only}) {
+        print "## Speakers\n\n| Speaker | Labelled lines |\n| --- | ---: |\n";
+        print '| ', markdown_escape($_), ' | ', $r->{speakers}{$_}, " |\n" for sort keys %{$r->{speakers}};
+        print "\n";
+    }
+    print "## Action checklist\n\n";
+    print "- [ ] ", markdown_escape($_->{text}), " _(line $_->{line})_\n" for @{$r->{action_lines}};
+    print "\n_No compiler, sentiment model, or privacy guarantee involved._\n";
 }
 
 sub print_report {
