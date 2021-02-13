@@ -31,6 +31,9 @@ like $dedupe_plain, qr/actions \/ TODOs:\n  - ship \(repeated on lines 2; 2 occu
 my $contains_json = qx{printf 'Zoë: TODO Ship [A+B]\nZoë: ACTION ship later\nAda: TODO unrelated\n' | $^X $script --json --contains 'a+b' --speaker 'Zoë' --dedupe-actions -};
 my $contains_report = decode_json($contains_json); is_deeply $contains_report->{actions}, ['Ship [A+B]'], 'contains is literal and composes with speaker/dedupe';
 my $secret_contains = qx{printf 'Ada: TODO email a\@b.example\n' | $^X $script --json --redact --contains 'a\@b.example' -}; my $secret_contains_report = decode_json($secret_contains); is $secret_contains_report->{contains}, '[search filter redacted]', 'redaction does not leak contains filter'; unlike $secret_contains, qr/a\@b\.example/, 'redacted JSON output omits raw contains value';
+my $csv = qx{printf 'Ada: TODO quote, "now"\nZoë: ACTION café\nAda: TODO quote, "now"\n' | $^X $script --csv --dedupe-actions -};
+like $csv, qr/^line,speaker,text,count,lines\r?\n/, 'csv has fixed header'; like $csv, qr/"1","Ada","quote, ""now""","2","1;3"\r?\n/, 'csv quotes commas and quotes and retains dedupe lines'; like $csv, qr/"2","Zo.+","caf.+","1","2"\r?\n/, 'csv preserves Unicode and source order';
+my $csv_status = system("$^X $script --csv --json - </dev/null >/dev/null 2>/dev/null"); isnt $csv_status, 0, 'csv and json are mutually exclusive';
 my $contains_bad = system("$^X $script --contains '' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_bad, 0, 'empty contains rejected';
 my $contains_long = system("$^X $script --contains '" . ('x' x 201) . "' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_long, 0, 'overlong contains rejected';
 my $filtered_markdown = qx{printf 'Ada: TODO a\@b.example\nZoë: TODO keep [this]\n' | $^X $script --markdown --actions-only --speaker 'Zoë' --redact -};

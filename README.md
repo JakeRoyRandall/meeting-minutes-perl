@@ -8,6 +8,7 @@ perl this-could-have-been-a-regex.pl --actions-only --speaker Ada notes.txt
 perl this-could-have-been-a-regex.pl --markdown notes.txt
 perl this-could-have-been-a-regex.pl --json --dedupe-actions notes.txt
 perl this-could-have-been-a-regex.pl --contains "launch" notes.txt
+perl this-could-have-been-a-regex.pl --csv --dedupe-actions notes.txt
 printf 'Ada: TODO send notes\nBob: agreed\n' | perl this-could-have-been-a-regex.pl --json -
 prove -v *.t
 ```
@@ -23,3 +24,5 @@ Input is bounded to 1 MiB of raw bytes for both files and stdin. The reader stop
 `--dedupe-actions` is opt-in. It collapses exact action text repeated by the same displayed speaker while preserving the first line, an array of every occurrence line in `action_lines`, and a `count`; unlabelled actions remain separate. Filtering and redaction happen before this comparison. Text and Markdown reports identify repeated line numbers, while the default output remains unchanged.
 
 `--contains TEXT` is an optional case-insensitive literal filter for visible action content. The value is decoded as UTF-8, trimmed, and limited to 200 characters; it is never treated as a regular expression. It runs after redaction and speaker filtering but before deduplication, so JSON records preserve source line numbers and report the visible search text. With `--redact`, JSON reports `"[search filter redacted]"` instead of echoing the filter value.
+
+`--csv` exports actions with fixed `line,speaker,text,count,lines` columns using RFC 4180 quoting and CRLF records. It uses the active speaker/contains/redaction/dedupe filters; without deduplication, `count` and `lines` are both the first line only. `--actions-only` is accepted but redundant. CSV cannot be combined with `--json` or `--markdown`.

@@ -10,9 +10,9 @@ binmode STDERR, ':encoding(UTF-8)';
 our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
-    my ($json, $redact, $actions_only, $markdown, $dedupe_actions, $speaker_filter, $contains, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'contains=s' => \$contains, 'help' => \$help) or usage(2);
-    cli_fail('--json and --markdown cannot be combined') if $json && $markdown;
+    my ($json, $redact, $actions_only, $markdown, $csv, $dedupe_actions, $speaker_filter, $contains, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'csv' => \$csv, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'contains=s' => \$contains, 'help' => \$help) or usage(2);
+    cli_fail('--json, --markdown, and --csv are mutually exclusive') if scalar(grep { $_ } ($json, $markdown, $csv)) > 1;
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     if (defined $contains) { eval { $contains = decode('UTF-8', $contains, FB_CROAK); 1 } or cli_fail('--contains is not valid UTF-8'); $contains =~ s/^\s+|\s+$//g; cli_fail('--contains needs a nonempty value') if $contains eq ''; cli_fail('--contains is limited to 200 characters') if length($contains) > 200; }
     usage(0) if $help; usage(2) if @ARGV > 1;
@@ -25,7 +25,7 @@ sub run_cli {
     $report->{dedupe_actions} = $dedupe_actions ? JSON::PP::true : JSON::PP::false;
     $report->{contains} = $redact ? '[search filter redacted]' : $contains if defined $contains;
     $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
-    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report)));
+    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($csv ? print_csv($report) : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report))));
 }
 run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
@@ -46,8 +46,8 @@ sub read_bounded {
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" unless $code;
     exit $code;
 }
 
@@ -118,6 +118,23 @@ sub print_actions_only {
     for my $action (@{$r->{action_lines}}) {
         my $occurrences = $r->{dedupe_actions} && $action->{count} > 1 ? " (repeated on lines " . join(', ', @{$action->{lines}}[1 .. $#{$action->{lines}}]) . "; $action->{count} occurrences)" : '';
         print "line $action->{line}: - $action->{text}$occurrences\n";
+    }
+}
+
+sub csv_field {
+    my ($value) = @_;
+    $value //= '';
+    $value =~ s/"/""/g;
+    return '"' . $value . '"';
+}
+
+sub print_csv {
+    my ($r) = @_;
+    print "line,speaker,text,count,lines\r\n";
+    for my $action (@{$r->{action_lines}}) {
+        my $count = $r->{dedupe_actions} ? $action->{count} : 1;
+        my $lines = $r->{dedupe_actions} ? join(';', @{$action->{lines}}) : $action->{line};
+        print join(',', map { csv_field($_) } ($action->{line}, $action->{speaker} // '', $action->{text}, $count, $lines)), "\r\n";
     }
 }
 
