@@ -21,5 +21,7 @@ my $nul_collision = main::summarize("A\0B: TODO C\nA: TODO B\0C\n", 0, undef, 1)
 is scalar(@{$nul_collision->{action_lines}}), 2, 'embedded NULs cannot collide in dedupe key';
 my $contained = main::summarize("Zoë: TODO Ship café [A+B]\nAda: TODO ship later\n", 0, undef, 0, 'CAFÉ');
 is_deeply $contained->{actions}, ['Ship café [A+B]'], 'contains filter is case-insensitive and literal';
+my $windowed = main::summarize("Ada: TODO one\nBob: TODO two\nAda: TODO three\n", 0, undef, 0, undef, [2, 3]);
+is_deeply $windowed->{actions}, ['two', 'three'], 'line window filters actions inclusively'; is $windowed->{lines}, 3, 'line window leaves full summary count';
 my $oversized_error = eval { main::summarize('x' x 1_048_577, 0); 1 }; ok !$oversized_error && $@ =~ /exceeds/, 'direct summarize enforces byte bound';
 done_testing;

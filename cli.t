@@ -34,6 +34,11 @@ my $secret_contains = qx{printf 'Ada: TODO email a\@b.example\n' | $^X $script -
 my $csv = qx{printf 'Ada: TODO quote, "now"\nZoë: ACTION café\nAda: TODO quote, "now"\n' | $^X $script --csv --dedupe-actions -};
 like $csv, qr/^line,speaker,text,count,lines\r?\n/, 'csv has fixed header'; like $csv, qr/"1","Ada","quote, ""now""","2","1;3"\r?\n/, 'csv quotes commas and quotes and retains dedupe lines'; like $csv, qr/"2","Zo.+","caf.+","1","2"\r?\n/, 'csv preserves Unicode and source order';
 my $csv_status = system("$^X $script --csv --json - </dev/null >/dev/null 2>/dev/null"); isnt $csv_status, 0, 'csv and json are mutually exclusive';
+my $window_json = qx{printf 'Ada: TODO one\nBob: TODO two\nAda: TODO three\n' | $^X $script --json --lines 2:3 -}; my $window_report = decode_json($window_json); is_deeply $window_report->{actions}, ['two', 'three'], 'line window composes with JSON'; is $window_report->{lines}, 3, 'line window JSON retains full input count';
+my $window_bad = system("$^X $script --lines 3:2 - </dev/null >/dev/null 2>/dev/null"); isnt $window_bad, 0, 'reversed line window rejected';
+my $window_malformed = system("$^X $script --lines 0:x - </dev/null >/dev/null 2>/dev/null"); isnt $window_malformed, 0, 'malformed line window rejected';
+my $window_exact = system("$^X $script --lines 1000000:1000000 - </dev/null >/dev/null 2>/dev/null"); is $window_exact, 0, 'one-million line endpoint accepted';
+my $window_over = system("$^X $script --lines 1000001:1000001 - </dev/null >/dev/null 2>/dev/null"); isnt $window_over, 0, 'line endpoint over one million rejected';
 my $contains_bad = system("$^X $script --contains '' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_bad, 0, 'empty contains rejected';
 my $contains_long = system("$^X $script --contains '" . ('x' x 201) . "' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_long, 0, 'overlong contains rejected';
 my $filtered_markdown = qx{printf 'Ada: TODO a\@b.example\nZoë: TODO keep [this]\n' | $^X $script --markdown --actions-only --speaker 'Zoë' --redact -};
