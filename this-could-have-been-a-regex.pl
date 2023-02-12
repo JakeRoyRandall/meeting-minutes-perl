@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use utf8;
 use Getopt::Long qw(GetOptions);
 use Encode qw(decode FB_CROAK);
 use JSON::PP;
@@ -8,45 +9,65 @@ binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
 sub run_cli {
-    my ($json, $redact, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'help' => \$help) or usage(2);
+    my ($json, $redact, $actions_only, $speaker_filter, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
+    if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     usage(0) if $help; usage(2) if @ARGV > 1;
     my $text = ''; my $raw = '';
     if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); local $/; $raw = <$fh> // ''; close $fh; }
     else { binmode STDIN, ':raw'; local $/; $raw = <STDIN> // ''; }
     eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
-    my $report = summarize($text, $redact);
-    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : print_report($report);
+    my $report = summarize($text, $redact, $speaker_filter);
+    $report->{actions_only} = $actions_only ? JSON::PP::true : JSON::PP::false;
+    $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
+    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($actions_only ? print_actions_only($report) : print_report($report));
 }
 run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--speaker NAME] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--speaker NAME] [FILE|-]\n" unless $code;
     exit $code;
 }
 
 sub summarize {
-    my ($input, $do_redact) = @_;
+    my ($input, $do_redact, $speaker_filter) = @_;
     my @lines = length($input) ? split(/\n/, $input, -1) : ();
     pop @lines if @lines && $input =~ /\n\z/;
-    my (%speakers, @actions); my $words = 0;
-    for my $line (@lines) {
+    my (%speakers, @actions, @action_lines); my $words = 0;
+    for my $line_index (0 .. $#lines) {
+        my $line = $lines[$line_index]; my $line_number = $line_index + 1;
+        my $original_speaker;
+        if ($line =~ /^\s*([^:]{1,40}):/) { $original_speaker = $1; $original_speaker =~ s/^\s+|\s+$//g; }
         my $shown = $line;
         $shown =~ s/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/[email redacted]/g if $do_redact;
         $shown =~ s/\b(?:\+?\d[\d .()-]{7,}\d)\b/[phone redacted]/g if $do_redact;
         $words += () = ($shown =~ /\S+/g);
         if ($shown =~ /^\s*([^:]{1,40}):\s*(.*)$/) {
             my ($speaker, $utterance) = ($1, $2); $speaker =~ s/^\s+|\s+$//g;
-            if ($speaker =~ /^(?:TODO|ACTION|FOLLOW[- ]?UP)$/i) { push @actions, $utterance; }
-            else { $speakers{$speaker}++; push @actions, $1 if $utterance =~ /^\s*(?:TODO|ACTION|FOLLOW[- ]?UP)\b\s*:?[ \t]*(.*)$/i; }
+            if ($speaker =~ /^(?:TODO|ACTION|FOLLOW[- ]?UP)$/i) {
+                if (!defined $speaker_filter) { push @actions, $utterance; push @action_lines, { line => $line_number, text => $utterance }; }
+            } else {
+                my $speaker_matches = !defined($speaker_filter) || (defined($original_speaker) && $original_speaker eq $speaker_filter);
+                $speakers{$speaker}++ if $speaker_matches;
+                if ($utterance =~ /^\s*(?:TODO|ACTION|FOLLOW[- ]?UP)\b\s*:?[ \t]*(.*)$/i && $speaker_matches) {
+                    push @actions, $1; push @action_lines, { line => $line_number, text => $1, speaker => $speaker };
+                }
+            }
         } elsif ($shown =~ /^\s*(?:[-*]\s*)?\b(?:TODO|ACTION|FOLLOW[- ]?UP)\b\s*:?(.*)$/i) {
-            push @actions, $1 =~ s/^\s+//r;
+            my $action = $1 =~ s/^\s+//r;
+            if (!defined $speaker_filter) { push @actions, $action; push @action_lines, { line => $line_number, text => $action }; }
         }
     }
-    return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions, redacted => $do_redact ? JSON::PP::true : JSON::PP::false };
+    return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions, action_lines => \@action_lines, redacted => $do_redact ? JSON::PP::true : JSON::PP::false };
+}
+
+sub print_actions_only {
+    my ($r) = @_;
+    print "This Could Have Been a Regex · actions only\n";
+    print "line $_->{line}: - $_->{text}\n" for @{$r->{action_lines}};
 }
 
 sub print_report {

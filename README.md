@@ -1,6 +1,14 @@
-# This Could Have Been a Regex — Snapshot 03 Feature
+# This Could Have Been a Regex
 
-Created September 2026 retrospectively, not historical 2020 work. Run with `perl this-could-have-been-a-regex.pl --redact [FILE|-]`; test with `prove -v summary.t cli.t`. This snapshot adds optional email and phone redaction. Redaction is pattern-based and offers no privacy guarantee.
+A bounded Perl utility for 2020-style remote meeting notes. It counts lines and words, approximates speaker airtime by speaker-labelled lines, extracts TODO/ACTION/FOLLOW-UP lines, and optionally redacts common email and phone shapes. Created September 2026 retrospectively; this is not historical 2020 work.
 
+```sh
+perl this-could-have-been-a-regex.pl --redact notes.txt
+perl this-could-have-been-a-regex.pl --actions-only --speaker Ada notes.txt
+printf 'Ada: TODO send notes\nBob: agreed\n' | perl this-could-have-been-a-regex.pl --json -
+prove -v *.t
+```
 
-Git author dates are deliberately assigned for contribution-calendar artwork; committer timestamps record actual September 2026 creation. Speaker counts approximate labelled lines, not elapsed airtime. Redaction, where supported, is a limited pattern substitution and changes reported word counts. It cannot guarantee removal of personal data.
+The tool uses simple text patterns. It does not identify speakers in unlabelled prose, measure actual speaking time, parse calendars, or provide a privacy guarantee. Redaction is only a convenience for common email and phone formats; review output before sharing.
+
+`--actions-only` prints only extracted action lines with their original 1-based line numbers. `--speaker NAME` restricts speaker-labelled actions and speaker counts to an exact existing label; the name is decoded and trimmed as UTF-8, with a 40-character limit. Unlabelled action lines are excluded when a speaker filter is active. The same filtered action list and `action_lines` records are included in JSON, along with the normal summary fields. These filters compose with `--redact`: matching uses the original label, displayed labels/content are redacted, and JSON reports only `"[speaker filter redacted]"` instead of echoing a potentially sensitive filter name.

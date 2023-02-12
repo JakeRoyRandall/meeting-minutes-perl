@@ -7,4 +7,8 @@ is $r->{lines}, 3, 'line count'; is $r->{words}, 10, 'word count'; is_deeply $r-
 is main::summarize('', 0)->{words}, 0, 'empty input';
 ok main::summarize("Zoë: café\n", 0)->{words} == 2, 'unicode words';
 my $p = main::summarize('Mail me a@b.example or call 555-123-4567', 1); like $p->{actions}[0] // '', qr/^/, 'no crash'; ok $p->{redacted}, 'redaction marker';
+my $filtered = main::summarize("Ada: TODO send notes\nBob: ACTION call team\nTODO: open doc\n", 0, 'Ada');
+is_deeply $filtered->{actions}, ['send notes'], 'speaker filter keeps matching actions'; is $filtered->{speakers}{Ada}, 1, 'speaker filter keeps matching speaker'; ok !exists $filtered->{speakers}{Bob}, 'speaker filter excludes other speaker'; is $filtered->{action_lines}[0]{line}, 1, 'action keeps original line number';
+my $copy = main::summarize("Ada: TODO send notes\n", 0); $copy->{action_lines}[0]{text} = 'changed'; is_deeply $copy->{actions}, ['send notes'], 'action text and action line are independent';
+my $redacted_action = main::summarize("Ada: TODO email a\@b.example or call 555-123-4567\n", 1, 'Ada'); like $redacted_action->{actions}[0], qr/email redacted.*phone redacted/, 'redaction composes with speaker action extraction';
 done_testing;
