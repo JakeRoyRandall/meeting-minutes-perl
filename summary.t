@@ -11,4 +11,5 @@ my $filtered = main::summarize("Ada: TODO send notes\nBob: ACTION call team\nTOD
 is_deeply $filtered->{actions}, ['send notes'], 'speaker filter keeps matching actions'; is $filtered->{speakers}{Ada}, 1, 'speaker filter keeps matching speaker'; ok !exists $filtered->{speakers}{Bob}, 'speaker filter excludes other speaker'; is $filtered->{action_lines}[0]{line}, 1, 'action keeps original line number';
 my $copy = main::summarize("Ada: TODO send notes\n", 0); $copy->{action_lines}[0]{text} = 'changed'; is_deeply $copy->{actions}, ['send notes'], 'action text and action line are independent';
 my $redacted_action = main::summarize("Ada: TODO email a\@b.example or call 555-123-4567\n", 1, 'Ada'); like $redacted_action->{actions}[0], qr/email redacted.*phone redacted/, 'redaction composes with speaker action extraction';
+my $oversized_error = eval { main::summarize('x' x 1_048_577, 0); 1 }; ok !$oversized_error && $@ =~ /exceeds/, 'direct summarize enforces byte bound';
 done_testing;

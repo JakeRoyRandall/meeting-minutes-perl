@@ -3,10 +3,11 @@ use strict;
 use warnings;
 use utf8;
 use Getopt::Long qw(GetOptions);
-use Encode qw(decode FB_CROAK);
+use Encode qw(decode encode FB_CROAK);
 use JSON::PP;
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
+our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
     my ($json, $redact, $actions_only, $speaker_filter, $help);
@@ -14,8 +15,8 @@ sub run_cli {
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     usage(0) if $help; usage(2) if @ARGV > 1;
     my $text = ''; my $raw = '';
-    if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); local $/; $raw = <$fh> // ''; close $fh; }
-    else { binmode STDIN, ':raw'; local $/; $raw = <STDIN> // ''; }
+    if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); $raw = read_bounded($fh, $ARGV[0]); close $fh or cli_fail("cannot close $ARGV[0]: $!"); }
+    else { binmode STDIN, ':raw'; $raw = read_bounded(\*STDIN, 'stdin'); }
     eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
     my $report = summarize($text, $redact, $speaker_filter);
     $report->{actions_only} = $actions_only ? JSON::PP::true : JSON::PP::false;
@@ -24,6 +25,20 @@ sub run_cli {
 }
 run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
+
+sub read_bounded {
+    my ($fh, $source) = @_;
+    my $raw = ''; my $chunk = '';
+    while (length($raw) <= $MAX_INPUT_BYTES) {
+        my $remaining = $MAX_INPUT_BYTES + 1 - length($raw); my $want = $remaining < 65_536 ? $remaining : 65_536;
+        my $read = read($fh, $chunk, $want);
+        cli_fail("cannot read $source: $!") unless defined $read;
+        last if $read == 0;
+        $raw .= substr($chunk, 0, $read);
+    }
+    cli_fail("input exceeds $MAX_INPUT_BYTES bytes: $source") if length($raw) > $MAX_INPUT_BYTES;
+    return $raw;
+}
 
 sub usage {
     my ($code) = @_;
@@ -34,6 +49,7 @@ sub usage {
 
 sub summarize {
     my ($input, $do_redact, $speaker_filter) = @_;
+    die "input exceeds $MAX_INPUT_BYTES bytes" if length(encode('UTF-8', $input)) > $MAX_INPUT_BYTES;
     my @lines = length($input) ? split(/\n/, $input, -1) : ();
     pop @lines if @lines && $input =~ /\n\z/;
     my (%speakers, @actions, @action_lines); my $words = 0;

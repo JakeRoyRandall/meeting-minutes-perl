@@ -11,4 +11,6 @@ prove -v *.t
 
 The tool uses simple text patterns. It does not identify speakers in unlabelled prose, measure actual speaking time, parse calendars, or provide a privacy guarantee. Redaction is only a convenience for common email and phone formats; review output before sharing.
 
+Input is bounded to 1 MiB of raw bytes for both files and stdin. The reader stops after checking at most one byte beyond that limit, then validates UTF-8; direct `summarize` callers receive the same size guard.
+
 `--actions-only` prints only extracted action lines with their original 1-based line numbers. `--speaker NAME` restricts speaker-labelled actions and speaker counts to an exact existing label; the name is decoded and trimmed as UTF-8, with a 40-character limit. Unlabelled action lines are excluded when a speaker filter is active. The same filtered action list and `action_lines` records are included in JSON, along with the normal summary fields. These filters compose with `--redact`: matching uses the original label, displayed labels/content are redacted, and JSON reports only `"[speaker filter redacted]"` instead of echoing a potentially sensitive filter name.

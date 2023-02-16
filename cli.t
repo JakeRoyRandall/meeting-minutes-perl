@@ -14,4 +14,13 @@ my $unicode_speaker = qx{printf 'Zoë: TODO café\nBob: TODO nope\n' | $^X $scri
 my $redacted_speaker = qx{printf 'a\@b.example: TODO call\n' | $^X $script --json --redact --speaker 'a\@b.example' -}; my $redacted_report = decode_json($redacted_speaker); is_deeply $redacted_report->{actions}, ['call'], 'speaker matches before redaction'; is $redacted_report->{speaker_filter}, '[speaker filter redacted]', 'redaction does not leak speaker filter';
 my $empty_speaker_status = system("$^X $script --speaker '   ' - </dev/null >/dev/null 2>/dev/null"); isnt $empty_speaker_status, 0, 'whitespace-only speaker rejected';
 my $long_speaker_status = system("$^X $script --speaker '" . ('x' x 41) . "' - </dev/null >/dev/null 2>/dev/null"); isnt $long_speaker_status, 0, 'overlong speaker rejected';
+my ($limit_fh, $limit_path) = tempfile(); binmode $limit_fh, ':raw'; print $limit_fh 'a' x 1_048_576; close $limit_fh;
+my $limit_report = decode_json(qx{$^X $script --json $limit_path}); is $limit_report->{lines}, 1, 'exact-limit input is accepted';
+my $limit_pipe = decode_json(qx{cat "$limit_path" | $^X $script --json -}); is_deeply $limit_pipe, $limit_report, 'exact-limit file and stdin agree';
+my ($over_fh, $over_path) = tempfile(); binmode $over_fh, ':raw'; print $over_fh 'a' x 1_048_577; close $over_fh;
+my $over_status = system("$^X $script --json $over_path >/dev/null 2>/dev/null"); isnt $over_status, 0, 'over-limit file rejected';
+my $over_pipe_status = system("cat '$over_path' | $^X $script --json - >/dev/null 2>/dev/null"); isnt $over_pipe_status, 0, 'over-limit stdin rejected';
+my ($bad_fh, $bad_path) = tempfile(); binmode $bad_fh, ':raw'; print $bad_fh "\xff"; close $bad_fh;
+my $bad_status = system("$^X $script --json $bad_path >/dev/null 2>/dev/null"); isnt $bad_status, 0, 'invalid UTF-8 rejected after bounded read';
+unlink $limit_path, $over_path, $bad_path;
 unlink $path; done_testing;
