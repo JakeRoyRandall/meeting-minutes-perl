@@ -6,6 +6,7 @@ A bounded Perl utility for 2020-style remote meeting notes. It counts lines and 
 perl this-could-have-been-a-regex.pl --redact notes.txt
 perl this-could-have-been-a-regex.pl --actions-only --speaker Ada notes.txt
 perl this-could-have-been-a-regex.pl --markdown notes.txt
+perl this-could-have-been-a-regex.pl --json --dedupe-actions notes.txt
 printf 'Ada: TODO send notes\nBob: agreed\n' | perl this-could-have-been-a-regex.pl --json -
 prove -v *.t
 ```
@@ -17,3 +18,5 @@ Input is bounded to 1 MiB of raw bytes for both files and stdin. The reader stop
 `--actions-only` prints only extracted action lines with their original 1-based line numbers. `--speaker NAME` restricts speaker-labelled actions and speaker counts to an exact existing label; the name is decoded and trimmed as UTF-8, with a 40-character limit. Unlabelled action lines are excluded when a speaker filter is active. The same filtered action list and `action_lines` records are included in JSON, along with the normal summary fields. These filters compose with `--redact`: matching uses the original label, displayed labels/content are redacted, and JSON reports only `"[speaker filter redacted]"` instead of echoing a potentially sensitive filter name.
 
 `--markdown` renders a printable handoff with summary counts, an escaped speaker table, and an action checklist annotated with original line numbers. It composes with `--speaker` and `--redact`; with `--actions-only`, it emits only the checklist. `--json` and `--markdown` cannot be used together. Pipes, brackets, backticks, emphasis markers, entities, and line breaks in names or actions are escaped or normalized so they cannot change the report structure.
+
+`--dedupe-actions` is opt-in. It collapses exact action text repeated by the same displayed speaker while preserving the first line, an array of every occurrence line in `action_lines`, and a `count`; unlabelled actions remain separate. Filtering and redaction happen before this comparison. Text and Markdown reports identify repeated line numbers, while the default output remains unchanged.

@@ -22,6 +22,12 @@ like $markdown, qr/\_\(line 1\)\_/, 'markdown keeps original action line number'
 ok index($markdown, 'line 1') < index($markdown, 'line 2'), 'markdown preserves action source order';
 my $newline_markdown = qx{printf 'TODO: fold\rcontinuation\n' | $^X $script --markdown -};
 like $newline_markdown, qr/fold continuation/, 'markdown normalizes embedded line breaks in action text';
+my $dedupe_json = qx{printf 'Ada: TODO ship\nAda: ACTION ship\nBob: TODO ship\n' | $^X $script --json --dedupe-actions -};
+my $dedupe_report = decode_json($dedupe_json); is scalar(@{$dedupe_report->{action_lines}}), 2, 'dedupe JSON collapses only within a speaker'; is_deeply $dedupe_report->{action_lines}[0]{lines}, [1, 2], 'dedupe JSON retains occurrence lines'; is $dedupe_report->{action_lines}[0]{count}, 2, 'dedupe JSON reports count';
+my $dedupe_text = qx{printf 'Ada: TODO ship\nAda: ACTION ship\n' | $^X $script --actions-only --dedupe-actions -};
+like $dedupe_text, qr/repeated on lines 1?2|repeated on lines 2; 2 occurrences/, 'dedupe text indicates repeated source';
+my $dedupe_plain = qx{printf 'Ada: TODO ship\nAda: ACTION ship\n' | $^X $script --dedupe-actions -};
+like $dedupe_plain, qr/actions \/ TODOs:\n  - ship \(repeated on lines 2; 2 occurrences\)/, 'normal text reports repeated source';
 my $filtered_markdown = qx{printf 'Ada: TODO a\@b.example\nZoë: TODO keep [this]\n' | $^X $script --markdown --actions-only --speaker 'Zoë' --redact -};
 like $filtered_markdown, qr/^## Action checklist/m, 'markdown actions-only has checklist'; unlike $filtered_markdown, qr/\*\*Lines:\*\*/, 'markdown actions-only suppresses summary counts'; unlike $filtered_markdown, qr/a\@b\.example/, 'markdown speaker filter excludes other speakers'; ok index($filtered_markdown, 'keep \\[this\\]') >= 0, 'markdown composes speaker filter and redaction';
 my $both_status = system("$^X $script --json --markdown - </dev/null >/dev/null 2>/dev/null"); isnt $both_status, 0, 'json and markdown are mutually exclusive';

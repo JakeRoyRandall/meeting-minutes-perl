@@ -11,5 +11,12 @@ my $filtered = main::summarize("Ada: TODO send notes\nBob: ACTION call team\nTOD
 is_deeply $filtered->{actions}, ['send notes'], 'speaker filter keeps matching actions'; is $filtered->{speakers}{Ada}, 1, 'speaker filter keeps matching speaker'; ok !exists $filtered->{speakers}{Bob}, 'speaker filter excludes other speaker'; is $filtered->{action_lines}[0]{line}, 1, 'action keeps original line number';
 my $copy = main::summarize("Ada: TODO send notes\n", 0); $copy->{action_lines}[0]{text} = 'changed'; is_deeply $copy->{actions}, ['send notes'], 'action text and action line are independent';
 my $redacted_action = main::summarize("Ada: TODO email a\@b.example or call 555-123-4567\n", 1, 'Ada'); like $redacted_action->{actions}[0], qr/email redacted.*phone redacted/, 'redaction composes with speaker action extraction';
+my $deduped = main::summarize("Ada: TODO ship\nAda: ACTION ship\nBob: TODO ship\nTODO: ship\nTODO: ship\n", 0, undef, 1);
+is_deeply $deduped->{actions}, ['ship', 'ship', 'ship', 'ship'], 'dedupe keeps one action per speaker and unlabelled occurrences separate';
+is_deeply $deduped->{action_lines}[0]{lines}, [1, 2], 'dedupe retains all matching source lines'; is $deduped->{action_lines}[0]{count}, 2, 'dedupe records occurrence count'; is $deduped->{action_lines}[1]{speaker}, 'Bob', 'dedupe preserves distinct speaker';
+my $redaction_collision = main::summarize("Ada: TODO email a\@b.example\nBob: TODO email a\@b.example\n", 1, undef, 1);
+is scalar(@{$redaction_collision->{action_lines}}), 2, 'redaction collision does not merge different speakers';
+my $nul_collision = main::summarize("A\0B: TODO C\nA: TODO B\0C\n", 0, undef, 1);
+is scalar(@{$nul_collision->{action_lines}}), 2, 'embedded NULs cannot collide in dedupe key';
 my $oversized_error = eval { main::summarize('x' x 1_048_577, 0); 1 }; ok !$oversized_error && $@ =~ /exceeds/, 'direct summarize enforces byte bound';
 done_testing;

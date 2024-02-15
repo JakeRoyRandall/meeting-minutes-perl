@@ -10,8 +10,8 @@ binmode STDERR, ':encoding(UTF-8)';
 our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
-    my ($json, $redact, $actions_only, $markdown, $speaker_filter, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
+    my ($json, $redact, $actions_only, $markdown, $dedupe_actions, $speaker_filter, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
     cli_fail('--json and --markdown cannot be combined') if $json && $markdown;
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     usage(0) if $help; usage(2) if @ARGV > 1;
@@ -19,8 +19,9 @@ sub run_cli {
     if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); $raw = read_bounded($fh, $ARGV[0]); close $fh or cli_fail("cannot close $ARGV[0]: $!"); }
     else { binmode STDIN, ':raw'; $raw = read_bounded(\*STDIN, 'stdin'); }
     eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
-    my $report = summarize($text, $redact, $speaker_filter);
+    my $report = summarize($text, $redact, $speaker_filter, $dedupe_actions);
     $report->{actions_only} = $actions_only ? JSON::PP::true : JSON::PP::false;
+    $report->{dedupe_actions} = $dedupe_actions ? JSON::PP::true : JSON::PP::false;
     $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
     $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report)));
 }
@@ -43,13 +44,13 @@ sub read_bounded {
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--speaker NAME] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--speaker NAME] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [FILE|-]\n" unless $code;
     exit $code;
 }
 
 sub summarize {
-    my ($input, $do_redact, $speaker_filter) = @_;
+    my ($input, $do_redact, $speaker_filter, $dedupe_actions) = @_;
     die "input exceeds $MAX_INPUT_BYTES bytes" if length(encode('UTF-8', $input)) > $MAX_INPUT_BYTES;
     my @lines = length($input) ? split(/\n/, $input, -1) : ();
     pop @lines if @lines && $input =~ /\n\z/;
@@ -78,13 +79,39 @@ sub summarize {
             if (!defined $speaker_filter) { push @actions, $action; push @action_lines, { line => $line_number, text => $action }; }
         }
     }
+    if ($dedupe_actions) {
+        my $deduped = dedupe_action_records(\@action_lines);
+        @action_lines = @$deduped;
+        @actions = map { $_->{text} } @action_lines;
+    }
     return { lines => scalar(@lines), words => $words, speakers => \%speakers, actions => \@actions, action_lines => \@action_lines, redacted => $do_redact ? JSON::PP::true : JSON::PP::false };
+}
+
+sub dedupe_action_records {
+    my ($records) = @_;
+    my (@out, %first_for_speaker);
+    for my $record (@$records) {
+        my $bucket = exists $record->{speaker} ? ($first_for_speaker{$record->{speaker}} ||= {}) : undef;
+        if (defined($bucket) && exists $bucket->{$record->{text}}) {
+            my $existing = $out[$bucket->{$record->{text}}];
+            push @{$existing->{lines}}, $record->{line};
+            $existing->{count}++;
+        } else {
+            my $copy = { %$record, lines => [ $record->{line} ], count => 1 };
+            push @out, $copy;
+            $bucket->{$record->{text}} = $#out if defined $bucket;
+        }
+    }
+    return \@out;
 }
 
 sub print_actions_only {
     my ($r) = @_;
     print "This Could Have Been a Regex · actions only\n";
-    print "line $_->{line}: - $_->{text}\n" for @{$r->{action_lines}};
+    for my $action (@{$r->{action_lines}}) {
+        my $occurrences = $r->{dedupe_actions} && $action->{count} > 1 ? " (repeated on lines " . join(', ', @{$action->{lines}}[1 .. $#{$action->{lines}}]) . "; $action->{count} occurrences)" : '';
+        print "line $action->{line}: - $action->{text}$occurrences\n";
+    }
 }
 
 sub markdown_escape {
@@ -106,7 +133,11 @@ sub print_markdown {
         print "\n";
     }
     print "## Action checklist\n\n";
-    print "- [ ] ", markdown_escape($_->{text}), " _(line $_->{line})_\n" for @{$r->{action_lines}};
+    for my $action (@{$r->{action_lines}}) {
+        my $line_note = "line $action->{line}";
+        $line_note .= "; repeated on lines " . join(', ', @{$action->{lines}}[1 .. $#{$action->{lines}}]) . "; $action->{count} occurrences" if $r->{dedupe_actions} && $action->{count} > 1;
+        print "- [ ] ", markdown_escape($action->{text}), " _($line_note)_\n";
+    }
     print "\n_No compiler, sentiment model, or privacy guarantee involved._\n";
 }
 
@@ -116,7 +147,10 @@ sub print_report {
     print "speaker airtime approximation (lines):\n";
     print "  $_: $r->{speakers}{$_}\n" for sort keys %{$r->{speakers}};
     print "actions / TODOs:\n";
-    print "  - $_\n" for @{$r->{actions}};
+    for my $action (@{$r->{action_lines}}) {
+        my $occurrences = $r->{dedupe_actions} && $action->{count} > 1 ? " (repeated on lines " . join(', ', @{$action->{lines}}[1 .. $#{$action->{lines}}]) . "; $action->{count} occurrences)" : '';
+        print "  - $action->{text}$occurrences\n";
+    }
     print "(No compiler, sentiment model, or privacy guarantee involved.)\n";
 }
 
