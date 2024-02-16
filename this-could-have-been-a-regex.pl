@@ -10,18 +10,20 @@ binmode STDERR, ':encoding(UTF-8)';
 our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
-    my ($json, $redact, $actions_only, $markdown, $dedupe_actions, $speaker_filter, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'help' => \$help) or usage(2);
+    my ($json, $redact, $actions_only, $markdown, $dedupe_actions, $speaker_filter, $contains, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'contains=s' => \$contains, 'help' => \$help) or usage(2);
     cli_fail('--json and --markdown cannot be combined') if $json && $markdown;
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
+    if (defined $contains) { eval { $contains = decode('UTF-8', $contains, FB_CROAK); 1 } or cli_fail('--contains is not valid UTF-8'); $contains =~ s/^\s+|\s+$//g; cli_fail('--contains needs a nonempty value') if $contains eq ''; cli_fail('--contains is limited to 200 characters') if length($contains) > 200; }
     usage(0) if $help; usage(2) if @ARGV > 1;
     my $text = ''; my $raw = '';
     if (@ARGV && $ARGV[0] ne '-') { open my $fh, '<:raw', $ARGV[0] or cli_fail("cannot read $ARGV[0]: $!"); $raw = read_bounded($fh, $ARGV[0]); close $fh or cli_fail("cannot close $ARGV[0]: $!"); }
     else { binmode STDIN, ':raw'; $raw = read_bounded(\*STDIN, 'stdin'); }
     eval { $text = decode('UTF-8', $raw, FB_CROAK); 1 } or cli_fail('input is not valid UTF-8');
-    my $report = summarize($text, $redact, $speaker_filter, $dedupe_actions);
+    my $report = summarize($text, $redact, $speaker_filter, $dedupe_actions, $contains);
     $report->{actions_only} = $actions_only ? JSON::PP::true : JSON::PP::false;
     $report->{dedupe_actions} = $dedupe_actions ? JSON::PP::true : JSON::PP::false;
+    $report->{contains} = $redact ? '[search filter redacted]' : $contains if defined $contains;
     $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
     $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report)));
 }
@@ -44,13 +46,13 @@ sub read_bounded {
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [FILE|-]\n" unless $code;
     exit $code;
 }
 
 sub summarize {
-    my ($input, $do_redact, $speaker_filter, $dedupe_actions) = @_;
+    my ($input, $do_redact, $speaker_filter, $dedupe_actions, $contains) = @_;
     die "input exceeds $MAX_INPUT_BYTES bytes" if length(encode('UTF-8', $input)) > $MAX_INPUT_BYTES;
     my @lines = length($input) ? split(/\n/, $input, -1) : ();
     pop @lines if @lines && $input =~ /\n\z/;
@@ -78,6 +80,11 @@ sub summarize {
             my $action = $1 =~ s/^\s+//r;
             if (!defined $speaker_filter) { push @actions, $action; push @action_lines, { line => $line_number, text => $action }; }
         }
+    }
+    if (defined $contains) {
+        my $needle = lc $contains;
+        @action_lines = grep { index(lc($_->{text}), $needle) >= 0 } @action_lines;
+        @actions = map { $_->{text} } @action_lines;
     }
     if ($dedupe_actions) {
         my $deduped = dedupe_action_records(\@action_lines);

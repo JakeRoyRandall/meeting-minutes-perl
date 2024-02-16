@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+use utf8;
 use Test::More;
 require './this-could-have-been-a-regex.pl';
 my $r = main::summarize("Ada: TODO send notes\nBob: sounds good\nACTION: book room\n", 0);
@@ -18,5 +19,7 @@ my $redaction_collision = main::summarize("Ada: TODO email a\@b.example\nBob: TO
 is scalar(@{$redaction_collision->{action_lines}}), 2, 'redaction collision does not merge different speakers';
 my $nul_collision = main::summarize("A\0B: TODO C\nA: TODO B\0C\n", 0, undef, 1);
 is scalar(@{$nul_collision->{action_lines}}), 2, 'embedded NULs cannot collide in dedupe key';
+my $contained = main::summarize("Zoë: TODO Ship café [A+B]\nAda: TODO ship later\n", 0, undef, 0, 'CAFÉ');
+is_deeply $contained->{actions}, ['Ship café [A+B]'], 'contains filter is case-insensitive and literal';
 my $oversized_error = eval { main::summarize('x' x 1_048_577, 0); 1 }; ok !$oversized_error && $@ =~ /exceeds/, 'direct summarize enforces byte bound';
 done_testing;

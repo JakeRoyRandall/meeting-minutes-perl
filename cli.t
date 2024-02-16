@@ -28,6 +28,11 @@ my $dedupe_text = qx{printf 'Ada: TODO ship\nAda: ACTION ship\n' | $^X $script -
 like $dedupe_text, qr/repeated on lines 1?2|repeated on lines 2; 2 occurrences/, 'dedupe text indicates repeated source';
 my $dedupe_plain = qx{printf 'Ada: TODO ship\nAda: ACTION ship\n' | $^X $script --dedupe-actions -};
 like $dedupe_plain, qr/actions \/ TODOs:\n  - ship \(repeated on lines 2; 2 occurrences\)/, 'normal text reports repeated source';
+my $contains_json = qx{printf 'Zoë: TODO Ship [A+B]\nZoë: ACTION ship later\nAda: TODO unrelated\n' | $^X $script --json --contains 'a+b' --speaker 'Zoë' --dedupe-actions -};
+my $contains_report = decode_json($contains_json); is_deeply $contains_report->{actions}, ['Ship [A+B]'], 'contains is literal and composes with speaker/dedupe';
+my $secret_contains = qx{printf 'Ada: TODO email a\@b.example\n' | $^X $script --json --redact --contains 'a\@b.example' -}; my $secret_contains_report = decode_json($secret_contains); is $secret_contains_report->{contains}, '[search filter redacted]', 'redaction does not leak contains filter'; unlike $secret_contains, qr/a\@b\.example/, 'redacted JSON output omits raw contains value';
+my $contains_bad = system("$^X $script --contains '' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_bad, 0, 'empty contains rejected';
+my $contains_long = system("$^X $script --contains '" . ('x' x 201) . "' - </dev/null >/dev/null 2>/dev/null"); isnt $contains_long, 0, 'overlong contains rejected';
 my $filtered_markdown = qx{printf 'Ada: TODO a\@b.example\nZoë: TODO keep [this]\n' | $^X $script --markdown --actions-only --speaker 'Zoë' --redact -};
 like $filtered_markdown, qr/^## Action checklist/m, 'markdown actions-only has checklist'; unlike $filtered_markdown, qr/\*\*Lines:\*\*/, 'markdown actions-only suppresses summary counts'; unlike $filtered_markdown, qr/a\@b\.example/, 'markdown speaker filter excludes other speakers'; ok index($filtered_markdown, 'keep \\[this\\]') >= 0, 'markdown composes speaker filter and redaction';
 my $both_status = system("$^X $script --json --markdown - </dev/null >/dev/null 2>/dev/null"); isnt $both_status, 0, 'json and markdown are mutually exclusive';
