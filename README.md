@@ -8,10 +8,11 @@ perl this-could-have-been-a-regex.pl --actions-only --speaker Ada notes.txt
 perl this-could-have-been-a-regex.pl --markdown notes.txt
 perl this-could-have-been-a-regex.pl --json --dedupe-actions notes.txt
 perl this-could-have-been-a-regex.pl --contains "launch" notes.txt
+perl this-could-have-been-a-regex.pl --count-only --contains "launch" notes.txt
 perl this-could-have-been-a-regex.pl --csv --dedupe-actions notes.txt
 perl this-could-have-been-a-regex.pl --actions-only --lines 20:40 notes.txt
 printf 'Ada: TODO send notes\nBob: agreed\n' | perl this-could-have-been-a-regex.pl --json -
-prove -v *.t
+(cd app && prove -v t)
 ```
 
 The tool uses simple text patterns. It does not identify speakers in unlabelled prose, measure actual speaking time, parse calendars, or provide a privacy guarantee. Redaction is only a convenience for common email and phone formats; review output before sharing.
@@ -29,3 +30,5 @@ Input is bounded to 1 MiB of raw bytes for both files and stdin. The reader stop
 `--csv` exports actions with fixed `line,speaker,text,count,lines` columns using RFC 4180 quoting and CRLF records. It uses the active speaker/contains/redaction/dedupe filters; without deduplication, `count` and `lines` are both the first line only. `--actions-only` is accepted but redundant. CSV cannot be combined with `--json` or `--markdown`.
 
 `--lines START:END` restricts action extraction to an inclusive positive source-line interval (each endpoint is at most 1,000,000). Endpoints beyond the input are allowed and can produce an empty action list; malformed or reversed intervals are rejected. Counts and speaker summaries still describe the full input. The window is applied before `--contains` and deduplication, and composes with all output modes.
+
+`--count-only` prints only `actions: N`, where `N` is the action-record count after `--speaker`, `--lines`, `--contains`, and optional `--dedupe-actions` processing. It cannot be combined with JSON, Markdown, or CSV.

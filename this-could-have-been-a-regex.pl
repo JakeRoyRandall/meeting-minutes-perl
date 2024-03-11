@@ -10,9 +10,10 @@ binmode STDERR, ':encoding(UTF-8)';
 our $MAX_INPUT_BYTES = 1_048_576;
 
 sub run_cli {
-    my ($json, $redact, $actions_only, $markdown, $csv, $dedupe_actions, $speaker_filter, $contains, $lines_filter, $help);
-    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'csv' => \$csv, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'contains=s' => \$contains, 'lines=s' => \$lines_filter, 'help' => \$help) or usage(2);
+    my ($json, $redact, $actions_only, $markdown, $csv, $count_only, $dedupe_actions, $speaker_filter, $contains, $lines_filter, $help);
+    GetOptions('json' => \$json, 'redact' => \$redact, 'actions-only' => \$actions_only, 'markdown' => \$markdown, 'csv' => \$csv, 'count-only' => \$count_only, 'dedupe-actions' => \$dedupe_actions, 'speaker=s' => \$speaker_filter, 'contains=s' => \$contains, 'lines=s' => \$lines_filter, 'help' => \$help) or usage(2);
     cli_fail('--json, --markdown, and --csv are mutually exclusive') if scalar(grep { $_ } ($json, $markdown, $csv)) > 1;
+    cli_fail('--count-only cannot be combined with --json, --markdown, or --csv') if $count_only && ($json || $markdown || $csv);
     if (defined $speaker_filter) { eval { $speaker_filter = decode('UTF-8', $speaker_filter, FB_CROAK); 1 } or cli_fail('--speaker is not valid UTF-8'); $speaker_filter =~ s/^\s+|\s+$//g; cli_fail('--speaker needs a nonempty name') if $speaker_filter eq ''; cli_fail('--speaker is limited to 40 characters') if length($speaker_filter) > 40; }
     if (defined $contains) { eval { $contains = decode('UTF-8', $contains, FB_CROAK); 1 } or cli_fail('--contains is not valid UTF-8'); $contains =~ s/^\s+|\s+$//g; cli_fail('--contains needs a nonempty value') if $contains eq ''; cli_fail('--contains is limited to 200 characters') if length($contains) > 200; }
     my $line_window;
@@ -28,7 +29,7 @@ sub run_cli {
     $report->{contains} = $redact ? '[search filter redacted]' : $contains if defined $contains;
     $report->{lines_filter} = $lines_filter if defined $lines_filter;
     $report->{speaker_filter} = $redact ? '[speaker filter redacted]' : $speaker_filter if defined $speaker_filter;
-    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($csv ? print_csv($report) : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report))));
+    $json ? print(JSON::PP->new->utf8(0)->encode($report), "\n") : ($count_only ? print "actions: " . scalar(@{$report->{action_lines}}) . "\n" : ($csv ? print_csv($report) : ($markdown ? print_markdown($report) : ($actions_only ? print_actions_only($report) : print_report($report)))));
 }
 run_cli() unless caller;
 sub cli_fail { print STDERR "error: $_[0]\n"; exit 2; }
@@ -49,8 +50,8 @@ sub read_bounded {
 
 sub usage {
     my ($code) = @_;
-    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [--lines START:END] [FILE|-]\n" if $code;
-    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [--lines START:END] [FILE|-]\n" unless $code;
+    print STDERR "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--count-only] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [--lines START:END] [FILE|-]\n" if $code;
+    print "usage: this-could-have-been-a-regex.pl [--json] [--redact] [--actions-only] [--markdown] [--csv] [--count-only] [--dedupe-actions] [--speaker NAME] [--contains TEXT] [--lines START:END] [FILE|-]\n" unless $code;
     exit $code;
 }
 
